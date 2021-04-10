@@ -1,31 +1,12 @@
 # Moura's Keyboard Scanner
-Turn your broken (or unused) keyboard in a MIDI controller (with pedal and veloticy)
+MIDI implementation for a 25 key Fatar keybed with force sensitive resistor (ribbon).
+This implementation, in addition to the original velocity (and sustain pedal),
+includes Aftertouch (from the FSR), Mod Wheel and Pitch Wheel continuous controls.
 
-This Arduino sketch was the one that I used to make the project demonstrated
-in [this](https://www.youtube.com/watch?v=z840N9P-T2k) video.
-It is about a keyboard controller that I've made using an old Alesis QS6 Keyboard
-directly connected to an Arduino Mega rev3 acting as keyboard scanner with 
-velocity reading and sustain pedal support.
-
-In 2017 I did the same with another keyboard (an old Casio from a friend).
-The code was refactored and a great library called [DIO2](https://github.com/FryDay/DIO2)
-was used to speed up the scanning and clean up the old code.
-
-In 2020, thanks to Leandro Meucchi, from Argentina, the code is simpler to be used with any keyboard.
-He made the PDF showing the keyboard wiring for Yamaha PSR530 keyboard, that helps a lot do understand what needs to be done.
-
-Warning: this sketch is for keyboard with velocity support only.
-
-![keyboardscanner](https://raw.githubusercontent.com/oxesoft/keyboardscanner/master/keyboardscanner.jpg)
-
-## How velocity works
-Normally it is a ribbon rubber with two contacts for each key that touch the board in two diffent moments:
-since the key was pressed until it slopes the board completly. The code measure the difference, varying between
-2 and 120 ms, depending on the keyboard. It is transformed in a MIDI value from 0 to 127.
+The Fatar keybed, FSR, pitch and mod wheels are connected to an Arduino Mega acting as keyboard scanner.
 
 ## Diagram of one key
-This scheme makes clear how to identify input and output pins. This has been the main question of guys on Youtube.
-I hope it helps:
+This scheme makes clear how to identify input and output pins. TODO: document Fatar matrix
 
 ![key](https://raw.githubusercontent.com/oxesoft/keyboardscanner/master/key_scheme.png)
 
