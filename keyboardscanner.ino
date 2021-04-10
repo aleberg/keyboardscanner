@@ -1,8 +1,18 @@
 /*
-Moura's Keyboard Scanner: turn you broken (or unused) keyboard in a MIDI controller
-Copyright (C) 2017 Daniel Moura <oxe@oxesoft.com>
+Moura's Keyboard Scanner, copyright (C) 2017 Daniel Moura <oxe@oxesoft.com>
 
 This code is originally hosted at https://github.com/oxesoft/keyboardscanner
+
+This is a WIP version for a 25 key Fatar keybed, and which adds Aftertouch, Mod Wheel and Pitch Wheel controls.
+
+Working:
+Note On
+Note Off
+Aftertouch
+
+Untested:
+Mod Wheel
+Pitch Wheel
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -16,38 +26,16 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
 
-/*
+MIDI COMMAND REFERENCE
 
-PITCH WHEEL
-
-// Value is +/- 8192
-void PitchWheelChange(int value) {
-    unsigned int change = 0x2000 + value;  //  0x2000 == No Change
-    unsigned char low = change & 0x7F;  // Low 7 bits
-    unsigned char high = (change >> 7) & 0x7F;  // High 7 bits
-
-   playMidi(0xE0, low, high);
-}
-
-
-
-void loop(){
-    PitchWheelChange(map(analogRead(A0),0, 1023, -8000, 8000));
-}
-
-
-MOD WHEEL
-
-void ModWheelChange(int value) {
-
-   playMidi(0xB0, 1, value);
-}
-
-void loop(){
-    ModWheelChange(map(analogRead(A1),0, 1023, 0, 127));
-}
+Command   Meaning                 # parameters  param 1       param 2
+0x80      Note Off                2             key           velocity
+0x90      Note On                 2             key           velocity
+0xA0      Aftertouch              2             key           touch
+0xB0      Continuous Controller   2             controller #  controller value
+0xD0      Channel Pressure        1             pressure
+0xE0      Pitch Bend              2             lsb (7 bits)  msb (7 bits)
 
 */
 
@@ -67,13 +55,13 @@ void loop(){
 #define MAX_TIME_MS_N (MAX_TIME_MS - MIN_TIME_MS)
 
 #define PEDAL_PIN     21
+#define FSR_PIN A0 // Force Sensitive Resistor (ribbon), with pull-down resistor
+#define PITCH_WHEEL_PIN A1
+#define MOD_WHEEL_PIN A2
 
 //find out the pins using a multimeter, starting from the first key
 //see the picture key_scheme.png to understand how to map the inputs and outputs
 
-//the following configuration is specific for PSR530
-//thanks Leandro Meucchi, from Argentina, by the PDF
-//take a look at the scheme detailed in PSR530.pdf and modify the following mapping according to the wiring of your keyboard
 #define PIN_B1  35
 #define PIN_B2  37
 #define PIN_B3  39
@@ -82,7 +70,6 @@ void loop(){
 #define PIN_B6  45
 #define PIN_B7  47
 #define PIN_B8  49
-
 #define PIN_C3  38
 #define PIN_C4  40
 #define PIN_C5  42
@@ -93,7 +80,7 @@ void loop(){
 #define PIN_C10 52
 
 byte input_pins[] = {
-    PIN_B5, //C0
+    PIN_B5, //C1
     PIN_B5,
     PIN_B6,
     PIN_B6,
@@ -117,7 +104,7 @@ byte input_pins[] = {
     PIN_B7,
     PIN_B8,
     PIN_B8,
-    PIN_B1, //C1
+    PIN_B1, //C2
     PIN_B1,
     PIN_B2,
     PIN_B2,
@@ -141,12 +128,12 @@ byte input_pins[] = {
     PIN_B3,
     PIN_B4,
     PIN_B4,
-    PIN_B5, //C2
+    PIN_B5, //C3
     PIN_B5
 };
 
 byte output_pins[] = {
-    PIN_C4, //C0
+    PIN_C4, //C1
     PIN_C3,
     PIN_C4,
     PIN_C3,
@@ -170,7 +157,7 @@ byte output_pins[] = {
     PIN_C5,
     PIN_C6,
     PIN_C5,
-    PIN_C8, //C1
+    PIN_C8, //C2
     PIN_C7,
     PIN_C8,
     PIN_C7,
@@ -194,7 +181,7 @@ byte output_pins[] = {
     PIN_C9,
     PIN_C10,
     PIN_C9,
-    PIN_C10,
+    PIN_C10, //C3
     PIN_C9
 };
 
@@ -207,12 +194,17 @@ byte output_pins[] = {
 */
 
 //uncoment the next line to get text midi message at output
-#define DEBUG_MIDI_MESSAGE
+//#define DEBUG_MIDI_MESSAGE
 
 byte          keys_state[KEYS_NUMBER];
 unsigned long keys_time[KEYS_NUMBER];
 boolean       signals[KEYS_NUMBER * 2];
 boolean       pedal_enabled;
+byte          fsrReading;      // the analog reading from the FSR resistor divider
+byte          pitchWheelReading;
+byte          modWheelReading;
+byte          pitchWheelNewReading;
+byte          modWheelNewReading;
 
 void setup() {
     Serial.begin(115200);
@@ -232,11 +224,21 @@ void setup() {
     {
         pinMode(input_pins[pin], INPUT_PULLUP);
     }
+
+    pinMode(FSR_PIN, INPUT);
+    fsrReading = 0;
+
+    pinMode(PITCH_WHEEL_PIN, INPUT);
+    pitchWheelReading = 0;
+    
+    pinMode(MOD_WHEEL_PIN, INPUT);
+    //modWheelReading = 0;
+    
     pinMode(PEDAL_PIN, INPUT_PULLUP);
     pedal_enabled = digitalRead(PEDAL_PIN) != HIGH;
 }
 
-void send_midi_event(byte status_byte, byte key_index, unsigned long time)
+void send_midi_note_event(byte status_byte, byte key_index, unsigned long time)
 {
     unsigned long t = time;
 
@@ -259,6 +261,43 @@ void send_midi_event(byte status_byte, byte key_index, unsigned long time)
 #endif
 }
 
+void send_midi_aftertouch_event(byte status_byte, byte key_index, byte pressure)
+{
+    byte key = 36 + key_index; //octave shift here??
+#ifdef DEBUG_MIDI_MESSAGE
+    char out[32];
+    sprintf(out, "%02X %d %d", status_byte, key, pressure);
+    Serial.println(out);
+#else
+    Serial.write(status_byte);
+    Serial.write(key);
+    Serial.write(pressure);
+#endif
+}
+
+void send_midi_cc_event(byte status_byte, byte param1, byte param2)
+{
+
+#ifdef DEBUG_MIDI_MESSAGE
+    char out[32];
+    sprintf(out, "%02X %d %d", status_byte, param1, param2);
+    Serial.println(out);
+#else
+    Serial.write(status_byte);
+    Serial.write(param1);
+    Serial.write(param2);
+#endif
+}
+
+void PitchWheelChange(int value) {
+    unsigned int change = 0x2000 + value;  //  0x2000 == No Change
+    unsigned char low = change & 0x7F;  // Low 7 bits
+    unsigned char high = (change >> 7) & 0x7F;  // High 7 bits
+
+   send_midi_cc_event(0xE0, low, high);
+}
+
+
 void loop() {
 #ifdef DEBUG_SCANS_PER_SECOND
     static unsigned long cycles = 0;
@@ -273,6 +312,23 @@ void loop() {
         start = current;
     }
 #endif
+  
+    pitchWheelNewReading = map(analogRead(PITCH_WHEEL_PIN),0, 1023, -8000, 8000);
+    if (pitchWheelNewReading != modWheelReading)
+    {
+        PitchWheelChange(modWheelNewReading);
+        modWheelReading = modWheelNewReading;
+    }
+
+    modWheelNewReading = map(analogRead(MOD_WHEEL_PIN),0, 1023, 0, 127);
+    if (modWheelNewReading != modWheelReading)
+    {
+        send_midi_cc_event(0xB0, 1, modWheelNewReading);
+        modWheelReading = modWheelNewReading;
+    }
+    
+    fsrReading = map(analogRead(FSR_PIN), 0, 850, 0, 127);  
+  
     byte pedal = LOW;
     if (pedal_enabled)
     {
@@ -314,12 +370,17 @@ void loop() {
                 if (state_index == 1 && *signal)
                 {
                     *state = KEY_ON;
-                    send_midi_event(0x90, key, millis() - *ktime);
+                    send_midi_note_event(0x90, key, millis() - *ktime);
                 }
                 break;
             case KEY_ON:
+                if (fsrReading > 0)
+                {
+                send_midi_aftertouch_event(0xA0, key, fsrReading);
+                }
                 if (state_index == 1 && !*signal)
                 {
+                    send_midi_aftertouch_event(0xA0, key, fsrReading);
                     *state = KEY_RELEASED;
                     *ktime = millis();
                 }
@@ -333,14 +394,14 @@ void loop() {
                         break;
                     }
                     *state = KEY_OFF;
-                    send_midi_event(0x80, key, millis() - *ktime);
+                    send_midi_note_event(0x80, key, millis() - *ktime);
                 }
                 break;
             case KEY_SUSTAINED:
                 if (!pedal)
                 {
                     *state = KEY_OFF;
-                    send_midi_event(0x80, key, MAX_TIME_MS);
+                    send_midi_note_event(0x80, key, MAX_TIME_MS);
                 }
                 if (state_index == 0 && *signal)
                 {
@@ -358,8 +419,8 @@ void loop() {
                 if (state_index == 1 && *signal)
                 {
                     *state = KEY_ON;
-                    send_midi_event(0x80, key, MAX_TIME_MS);
-                    send_midi_event(0x90, key, millis() - *ktime);
+                    send_midi_note_event(0x80, key, MAX_TIME_MS);
+                    send_midi_note_event(0x90, key, millis() - *ktime);
                 }
                 break;
             }
