@@ -289,7 +289,7 @@ void send_midi_cc_event(byte status_byte, byte param1, byte param2)
 #endif
 }
 
-void PitchWheelChange(int value) {
+void pitch_wheel_change(int value) {
     unsigned int change = 0x2000 + value;  //  0x2000 == No Change
     unsigned char low = change & 0x7F;  // Low 7 bits
     unsigned char high = (change >> 7) & 0x7F;  // High 7 bits
@@ -314,10 +314,10 @@ void loop() {
 #endif
   
     pitchWheelNewReading = map(analogRead(PITCH_WHEEL_PIN),0, 1023, -8000, 8000);
-    if (pitchWheelNewReading != modWheelReading)
+    if (pitchWheelNewReading != pitchWheelReading)
     {
-        PitchWheelChange(modWheelNewReading);
-        modWheelReading = modWheelNewReading;
+        pitch_wheel_change(pitchWheelNewReading);
+        pitchWheelReading = pitchWheelNewReading;
     }
 
     modWheelNewReading = map(analogRead(MOD_WHEEL_PIN),0, 1023, 0, 127);
