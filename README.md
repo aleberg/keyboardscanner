@@ -1,7 +1,7 @@
-# Moura's Keyboard Scanner
+# Keyboard Scanner and Common Controllers to MIDI
 MIDI implementation for a 25 key Fatar keybed with force sensitive resistor (ribbon).
-This implementation, in addition to the original velocity (and sustain pedal),
-includes Aftertouch (from the FSR), Mod Wheel and Pitch Wheel continuous controls.
+This implementation, in addition to the original velocity, includes Aftertouch (Channel Pressure, from the FSR), 
+Mod Wheel and Pitch Wheel continuous controls. Velocity is routed to CC71 (Volume) due to my specific usecase.
 
 The Fatar keybed, FSR, pitch and mod wheels are connected to an Arduino Mega acting as keyboard scanner.
 
