@@ -1,6 +1,6 @@
 /*
   Moura's Keyboard Scanner, copyright (C) 2017 Daniel Moura <oxe@oxesoft.com>
-  Modified by Alessandro Guttenberg, April 2021
+
   This code is originally hosted at https://github.com/oxesoft/keyboardscanner
 
   This is a WIP version for a 25 key Fatar keybed, which also adds Aftertouch (Channel Pressure), Mod Wheel and Pitch Wheel controls.
@@ -8,13 +8,14 @@
   Tested & Working:
   Note On
   Note Off
+  Velocity (passed with Note On and Note Off events, updated only for Note On, and routed to CC71 Volume)
   Aftertouch (Channel Pressure)
   Mod Wheel
   Pitch Wheel
 
   TODO:
-  - add software smoothing of analog inputs
   - tweak analog controller input scaling
+  - add +/- octave switch
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -48,26 +49,29 @@
 #define FSR_PIN A0 // Force Sensitive Resistor (ribbon), with pull-down resistor
 #define PITCH_WHEEL_PIN A1
 #define MOD_WHEEL_PIN A2
+#define OCTAVE_UP_PIN //digital high low
+#define OCTAVE_DOWN_PIN //digital high low
 
-#define PIN_B1  35
-#define PIN_B2  37
-#define PIN_B3  39
-#define PIN_B4  41
-#define PIN_B5  43
-#define PIN_B6  45
-#define PIN_B7  47
-#define PIN_B8  49
-#define PIN_C3  38
-#define PIN_C4  40
-#define PIN_C5  42
-#define PIN_C6  44
-#define PIN_C7  46
-#define PIN_C8  48
-#define PIN_C9  50
-#define PIN_C10 52
+#define PIN_B1  52
+#define PIN_B2  50
+#define PIN_B3  48
+#define PIN_B4  46
+#define PIN_B5  44
+#define PIN_B6  42
+#define PIN_B7  40
+#define PIN_B8  38
+
+#define PIN_C3  49
+#define PIN_C4  47
+#define PIN_C5  45
+#define PIN_C6  43
+#define PIN_C7  41
+#define PIN_C8  39
+#define PIN_C9  37
+#define PIN_C10 35
 
 byte input_pins[] = {
-  PIN_B5, //C1
+  PIN_B5, //C2
   PIN_B5,
   PIN_B6,
   PIN_B6,
@@ -91,7 +95,7 @@ byte input_pins[] = {
   PIN_B7,
   PIN_B8,
   PIN_B8,
-  PIN_B1, //C2
+  PIN_B1, //C3
   PIN_B1,
   PIN_B2,
   PIN_B2,
@@ -115,12 +119,12 @@ byte input_pins[] = {
   PIN_B3,
   PIN_B4,
   PIN_B4,
-  PIN_B5, //C3
+  PIN_B5, //C4
   PIN_B5
 };
 
 byte output_pins[] = {
-  PIN_C4, //C1
+  PIN_C4, //C2
   PIN_C3,
   PIN_C4,
   PIN_C3,
@@ -144,7 +148,7 @@ byte output_pins[] = {
   PIN_C5,
   PIN_C6,
   PIN_C5,
-  PIN_C8, //C2
+  PIN_C8, //C3
   PIN_C7,
   PIN_C8,
   PIN_C7,
@@ -168,7 +172,7 @@ byte output_pins[] = {
   PIN_C9,
   PIN_C10,
   PIN_C9,
-  PIN_C10, //C3
+  PIN_C10, //C4
   PIN_C9
 };
 
@@ -181,7 +185,7 @@ byte output_pins[] = {
 */
 
 //uncoment the next line to get text midi message at output
-//#define DEBUG_MIDI_MESSAGE
+#define DEBUG_MIDI_MESSAGE
 
 byte          keys_state[KEYS_NUMBER];
 unsigned long keys_time[KEYS_NUMBER];
@@ -191,6 +195,17 @@ byte          pitchWheelReading;
 byte          modWheelReading;
 byte          pitchWheelNewReading;
 byte          modWheelNewReading;
+
+const int numReadings = 10;
+int readingsPitch[numReadings];
+int readingsMod[numReadings];
+int readIndex = 0;
+int totalPitch = 0;
+int totalMod = 0;
+int averagePitch = 0;
+int averageMod = 0;
+int pitchMidPoint = 64;
+int pitchDeadZone = 4;
 
 void setup() {
 
@@ -225,6 +240,11 @@ void setup() {
 
   pinMode(MOD_WHEEL_PIN, INPUT);
   modWheelReading = 0;
+
+  for (int thisReading = 0; thisReading < numReadings; thisReading++) {
+    readingsPitch[thisReading] = 0;
+    readingsMod[thisReading] = 0;
+  }
 }
 
 void send_midi_note_event(int command, int key_index, unsigned long time)
@@ -238,7 +258,7 @@ void send_midi_note_event(int command, int key_index, unsigned long time)
   t -= MIN_TIME_MS;
   unsigned long velocity = 127 - (t * 127 / MAX_TIME_MS_N);
   int vel = (((velocity * velocity) >> 7) * velocity) >> 7;
-  int key = 36 + key_index;
+  int key = 48 + key_index; //octave switch in place of hardcoded number
 #ifdef DEBUG_MIDI_MESSAGE
   char out[32];
   sprintf(out, "%02X %d %03d %d", command, key, vel, time);
@@ -282,6 +302,7 @@ void send_midi_cc_event(int status_byte, int param1, int param2)
 
 
 void loop() {
+  
 #ifdef DEBUG_SCANS_PER_SECOND
   static unsigned long cycles = 0;
   static unsigned long start = 0;
@@ -296,18 +317,41 @@ void loop() {
   }
 #endif
 
-  modWheelNewReading = map(analogRead(MOD_WHEEL_PIN), 0, 1023, 0, 127);
-  if ((modWheelNewReading + modWheelReading) / 2 != modWheelReading)
-  {
-    send_midi_cc_event(176, 1, modWheelNewReading);
-    modWheelReading = modWheelNewReading;
-  }
+  totalPitch = totalPitch - readingsPitch[readIndex];
+  readingsPitch[readIndex] = map(analogRead(PITCH_WHEEL_PIN), 0, 1023, 0, 127);
 
-  pitchWheelNewReading = map(analogRead(PITCH_WHEEL_PIN), 0, 1023, 0, 127);
-  if ((pitchWheelNewReading + pitchWheelReading) / 2 != pitchWheelReading)
+  totalMod = totalMod - readingsMod[readIndex];
+  readingsMod[readIndex] = map(analogRead(MOD_WHEEL_PIN), 0, 1023, 0, 127);
+
+  if ((readingsPitch[readIndex] >= pitchMidPoint - pitchDeadZone) && (readingsPitch[readIndex]<= pitchMidPoint + pitchDeadZone))
+  {
+    readingsPitch[readIndex] = pitchMidPoint;
+  }
+  
+  totalPitch = totalPitch + readingsPitch[readIndex];
+  totalMod = totalMod + readingsMod[readIndex];
+  readIndex = readIndex + 1;
+
+  if (readIndex >= numReadings) 
+  {
+    readIndex = 0;
+  }
+  
+  averagePitch = totalPitch / numReadings;
+  averageMod = totalMod / numReadings;
+
+   pitchWheelNewReading =  averagePitch;
+  if (pitchWheelNewReading != pitchWheelReading)
   {
     send_midi_cc_event(224, 0, pitchWheelNewReading);
     pitchWheelReading = pitchWheelNewReading;
+  }
+
+  modWheelNewReading =  averageMod;
+  if (modWheelNewReading != modWheelReading)
+  {
+    send_midi_cc_event(176, 1, modWheelNewReading);
+    modWheelReading = modWheelNewReading;
   }
 
   fsrReading = map(analogRead(FSR_PIN), 0, 850, 0, 127);
