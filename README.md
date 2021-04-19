@@ -7,8 +7,7 @@ The Fatar keybed, FSR, pitch and mod wheels are connected to an Arduino Mega act
 
 A Fatar 25 key keybed has a single ribbon cable. I used a protoboard hat for the Mega and connected the ribbon as so:
 
-![IMG_20210419_150735_5_2](https://user-images.githubusercontent.com/10801301/115242249-fcab2780-a121-11eb-9ee7-26bf8ba83555.jpg)
-
+![ribbon](https://user-images.githubusercontent.com/10801301/115242664-64617280-a122-11eb-907b-26503e381b23.jpg)
 
 ## Diagram of one key
 This scheme makes clear how to identify input and output pins. TODO: document Fatar matrix
