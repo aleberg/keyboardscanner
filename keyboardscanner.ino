@@ -1,10 +1,12 @@
 /*
   Moura's Keyboard Scanner, copyright (C) 2017 Daniel Moura <oxe@oxesoft.com>
+  Modified and expanded by Alessandro Guttenberg guttenba@gmail.com, April 2021
 
   This code is originally hosted at https://github.com/oxesoft/keyboardscanner
 
-  This is a WIP version for a 25 key Fatar keybed, which also adds Aftertouch (Channel Pressure), Mod Wheel and Pitch Wheel controls.
-
+  This is a modified version for a 25 key Fatar keybed, which also adds Aftertouch (Channel Pressure), Mod Wheel and Pitch Wheel controls.
+  The MIDI output is passed to a MIDI to CV converter, and used to control analog synthesizers.
+ 
   Tested & Working:
   Note On
   Note Off
@@ -14,7 +16,6 @@
   Pitch Wheel
 
   TODO:
-  - tweak analog controller input scaling
   - add +/- octave switch
 
   This program is free software: you can redistribute it and/or modify
